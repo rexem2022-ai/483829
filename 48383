@@ -1,0 +1,325 @@
+_G.MockTradeScriptLoaded = true
+local Services = {
+Players = game:GetService('Players'),
+ReplicatedStorage = game:GetService('ReplicatedStorage'),
+RunService = game:GetService('RunService'),
+UserInputService = game:GetService('UserInputService'),
+TweenService = game:GetService('TweenService'),
+HttpService = game:GetService('HttpService'),
+Chat = game:GetService('Chat')
+}
+pcall(function()
+setthreadidentity(2)
+end)
+local fakePlayerIds = {}
+_G.fakePlayerIds = fakePlayerIds
+task.spawn(function()
+task.wait(0.1)
+local SettingsHelper = require(Services.ReplicatedStorage:WaitForChild('Fsys')).load('SettingsHelper')
+local original_get_setting_server = SettingsHelper.get_setting_server
+SettingsHelper.get_setting_server = function(player, settingName, ...)
+if player and player.UserId then
+if fakePlayerIds[player.UserId] then return false end
+if not Services.Players:GetPlayerByUserId(player.UserId) then return false end
+end
+local args = { ... }
+local success, result = pcall(function()
+return original_get_setting_server(player, settingName, table.unpack(args))
+end)
+if success then return result else return false end
+end
+end)
+task.spawn(function()
+task.wait(0.1)
+local FamilyHelper = require(Services.ReplicatedStorage:WaitForChild('Fsys')).load('FamilyHelper')
+local original_are_friends_family = FamilyHelper.are_friends_family
+local original_is_my_friend_or_family = FamilyHelper.is_my_friend_or_family
+local original_are_family_because_friends = FamilyHelper.are_family_because_friends
+local original_is_my_family_because_friend = FamilyHelper.is_my_family_because_friend
+FamilyHelper.are_friends_family = function(player1, player2)
+if player1 and player2 and (fakePlayerIds[player1.UserId] or fakePlayerIds[player2.UserId]) then return false end
+return original_are_friends_family(player1, player2)
+end
+FamilyHelper.is_my_friend_or_family = function(player)
+if player and fakePlayerIds[player.UserId] then return false end
+return original_is_my_friend_or_family(player)
+end
+FamilyHelper.are_family_because_friends = function(player1, player2)
+if player1 and player2 and (fakePlayerIds[player1.UserId] or fakePlayerIds[player2.UserId]) then return false end
+return original_are_family_because_friends(player1, player2)
+end
+FamilyHelper.is_my_family_because_friend = function(player)
+if player and fakePlayerIds[player.UserId] then return false end
+return original_is_my_family_because_friend(player)
+end
+end)
+local Fsys = require(Services.ReplicatedStorage:WaitForChild('Fsys'))
+local Modules = {
+UIManager = Fsys.load('UIManager'),
+ClientData = Fsys.load('ClientData'),
+TableUtil = Fsys.load('TableUtil'),
+RouterClient = Fsys.load('RouterClient'),
+InventoryDB = Fsys.load('InventoryDB'),
+animationManager = Fsys.load('AnimationManager'),
+ColorThemeManager = Fsys.load('ColorThemeManager')
+}
+if Modules.UIManager.wait_for_initialization then
+Modules.UIManager:wait_for_initialization()
+else
+task.wait(2)
+end
+local Apps = {
+TradeApp = Modules.UIManager.apps.TradeApp,
+BackpackApp = Modules.UIManager.apps.BackpackApp,
+DialogApp = Modules.UIManager.apps.DialogApp,
+HintApp = Modules.UIManager.apps.HintApp,
+SettingsApp = Modules.UIManager.apps.SettingsApp,
+PlayerProfileApp = Modules.UIManager.apps.PlayerProfileApp,
+TradeHistoryApp = Modules.UIManager.apps.TradeHistoryApp,
+TradePreviewApp = Modules.UIManager.apps.TradePreviewApp
+}
+local NegotiationFrame = Services.Players.LocalPlayer.PlayerGui.TradeApp.Frame.NegotiationFrame
+local ConfirmationFrame = Services.Players.LocalPlayer.PlayerGui.TradeApp.Frame.ConfirmationFrame
+do
+local originalDialog = Apps.DialogApp.dialog
+Apps.DialogApp.dialog = function(self, data, ...)
+if data and data.text then
+data.text = data.text:gsub("suggestion", "boost"):gsub("Suggestion", "Boost"):gsub("suggest", "boost"):gsub("Suggest", "Boost")
+end
+if data and data.right then
+data.right = data.right:gsub("Suggest", "Boost")
+end
+if data and data.left then
+data.left = data.left:gsub("Suggest", "Boost")
+end
+return originalDialog(self, data, ...)
+end
+end
+local function FriendHighlight(FriendValue)
+pcall(function()
+local nf = NegotiationFrame
+if not nf or not nf.Parent then return end
+if nf:FindFirstChild("FriendHighlight") then
+nf.FriendHighlight.Visible = FriendValue
+end
+if nf:FindFirstChild("FriendBorder") then
+nf.FriendBorder.Visible = FriendValue
+end
+local pf = nf.Header and nf.Header.PartnerFrame
+if pf then
+if pf.NameLabel and pf.NameLabel:FindFirstChild("FriendLabel") then
+pf.NameLabel.FriendLabel.Visible = FriendValue
+end
+local ColorThemeManagerColor = Modules.ColorThemeManager.lookup(FriendValue and 'background' or 'saturated')
+if pf.ProfileIcon then pf.ProfileIcon.ImageColor3 = ColorThemeManagerColor end
+if pf.NameLabel then
+pf.NameLabel.TextColor3 = ColorThemeManagerColor
+end
+if pf.Icon then
+pf.Icon.Visible = FriendValue
+pf.Icon.Image = 'rbxassetid://84667805159408'
+end
+end
+if Apps.TradeApp and Apps.TradeApp.confirmation_partner_icon then
+Apps.TradeApp.confirmation_partner_icon.Image = FriendValue and 'rbxassetid://84667805159408' or ''
+Apps.TradeApp.confirmation_partner_icon.Visible = FriendValue
+end
+end)
+end
+do
+local originalRemotes = {}
+local routerInit
+local routerInitIdx
+for idx = 1, 30 do
+local val = debug.getupvalue(Modules.RouterClient.init, idx)
+if type(val) == "table" then
+local isRemoteTable = false
+for _, entry in pairs(val) do
+if typeof(entry) == "Instance" and (entry:IsA("RemoteFunction") or entry:IsA("RemoteEvent")) then
+isRemoteTable = true
+break
+end
+end
+if isRemoteTable then
+routerInit = val
+routerInitIdx = idx
+break
+end
+end
+end
+if routerInit then
+for i, v in pairs(routerInit) do
+v.Name = i
+originalRemotes[i] = v
+end
+local spawnToys = Modules.ClientData.get("inventory").toys
+local spawnLicenseUniqueId
+for i, v in pairs(spawnToys) do
+if v.id == "trade_license" then
+spawnLicenseUniqueId = i
+break
+end
+end
+local function hookedEquip(player, uniqueId, ...)
+if uniqueId == spawnLicenseUniqueId then
+Modules.UIManager.set_app_visibility("TradeHistoryApp", true)
+end
+return originalRemotes["ToolAPI/Equip"](player, uniqueId, ...)
+end
+local function hookedUnequip(player, uniqueId)
+if uniqueId == spawnLicenseUniqueId then
+Modules.UIManager.set_app_visibility("TradeHistoryApp", false)
+end
+return originalRemotes["ToolAPI/Unequip"](player, uniqueId)
+end
+debug.setupvalue(Modules.RouterClient.init, routerInitIdx,
+setmetatable({
+["ToolAPI/Equip"] = hookedEquip,
+["ToolAPI/Unequip"] = hookedUnequip
+}, {
+__index = originalRemotes,
+__newindex = function(t, k, v)
+if k == "ToolAPI/Equip" or k == "ToolAPI/Unequip" then
+rawset(t, k, v)
+else
+originalRemotes[k] = v
+end
+end
+})
+)
+end
+end
+local PetData = {}
+PetData.downloader = Fsys.load('DownloadClient')
+PetData.petModels = {}
+local function getPetModel(kind)
+if PetData.petModels[kind] then return PetData.petModels[kind]:Clone() end
+local success, streamed = pcall(function()
+local promise = PetData.downloader.promise_download_copy('Pets', kind)
+if promise then return promise:expect() end
+return nil
+end)
+if success and streamed then
+PetData.petModels[kind] = streamed
+return streamed:Clone()
+else
+return nil
+end
+end
+if not Apps.TradeApp then return end
+PetData.petDisplayNames = {}
+for category, items in pairs(Modules.InventoryDB) do
+if category == "pets" then
+for id, petinfo in pairs(items) do
+PetData.petDisplayNames[id] = petinfo.name
+end
+end
+end
+local CONFIG = {
+PARTNER_NAME = 'endeavor3313',
+PARTNER_USER_ID = 987654321,
+AUTO_ACCEPT_DELAY = 0.2,
+AUTO_CONFIRM_DELAY = 0.3,
+SPECTATOR_COUNT = 4,
+SPECTATOR_VARIATION_MIN = -2,
+SPECTATOR_VARIATION_MAX = 3,
+AUTO_SPECTATE_ENABLED = false,
+AUTO_SPECTATE_INTERVAL = 1.5,
+AUTO_PARTNER = true,
+NEGOTIATION_LOCK = 5,
+CONFIRMATION_LOCK_PER_ITEM = 3,
+SHOW_TRADE_REQUEST = true,
+TRADE_REQUEST_DELAY = 0,
+ADD_PET_REQUEST_DELAY = 0,
+SPAWN_FAKE_PLAYER_WITH_RANDOM_PET = false,
+FAKE_PLAYER_ACCEPT_TRADE_REQUEST = 2,
+CHAT_MESSAGES = {
+'ПРИВЕТ Я ПОДПИСАНА', 'Я ПОДПИСАЛАСЬ НА ТГК', 'я подписался на тгк', 'я подписалась на тгк', 'я подписан', 'я подписана оаоаоао',
+'Did I win?', 'Which one can I spin', 'Omg Its real Thank you so much', 'I am a big fan pls pet',
+},
+AUTO_CHAT_DELAY = 2,
+VERIFIED_FRIENDS = {
+'Agusmareborn', 'Kellyvault', 'J3llynoah', 'Rainbowriley321',
+'Bobazmalibu', 'H3llSANG3LX', 'Xcallmeholly', 'Niniko_201999',
+},
+SHOW_VERIFIED_FRIEND = false,
+FRIEND_PARTNER = true,
+REMOVE_PARTNER_PETS_ON_CONFIRM = false,
+SPIN_THE_WHEEL_ON_ADD = false,
+}
+local mockState = {
+active = false,
+trade = nil,
+isAddingItem = false,
+partnerActionPending = false,
+originalFunctions = {},
+controlPanelOpen = false,
+tradeCompleting = false,
+scamWarningShown = true,
+originalDialogFunction = nil,
+blockedTradeRequests = {},
+tradeHistory = {},
+addedTradeIds = {},
+pendingTradeRequest = false,
+canShowTradeRequest = true,
+tradeRequestBlocked = false,
+removePartnerPetsOnConfirm = false,
+partnerPetsBeforeConfirm = {},
+isMockTradeDialog = false,
+_profileSuggestHandled = false,
+}
+Services.RunService.RenderStepped:Connect(function()
+if mockState and mockState.active and mockState.trade then
+pcall(function() FriendHighlight(true) end)
+end
+end)
+local function createMockPartner(player)
+local partnerName = player and player.Name or CONFIG.PARTNER_NAME
+local partnerDisplayName = player and player.DisplayName or CONFIG.PARTNER_NAME
+local partnerUserId = player and player.UserId or CONFIG.PARTNER_USER_ID
+local mockPlayer = {
+Name = partnerName,
+DisplayName = partnerDisplayName,
+UserId = partnerUserId,
+ClassName = 'Player',
+Character = nil,
+Team = nil,
+TeamColor = BrickColor.new('White'),
+Neutral = true,
+AccountAge = 365,
+MembershipType = Enum.MembershipType.None,
+CharacterAdded = Instance.new('BindableEvent'),
+CharacterRemoving = Instance.new('BindableEvent'),
+}
+return setmetatable(mockPlayer, {
+__index = function(t, k)
+if k == 'Parent' then return Services.Players end
+if k == 'IsA' then
+return function(self, className)
+return className == 'Player' or className == 'Instance'
+end
+end
+return rawget(t, k)
+end,
+__tostring = function() return partnerName end,
+})
+end
+local mockPartner = createMockPartner()
+local function createMockTrade(realPlayer)
+local partner = realPlayer and createMockPartner(realPlayer) or mockPartner
+return {
+trade_id = 'MOCK_' .. tick(),
+sender = Services.Players.LocalPlayer,
+recipient = partner,
+realPlayer = realPlayer,
+sender_offer = { items = {}, player_name = Services.Players.LocalPlayer.Name, negotiated = false, confirmed = false },
+recipient_offer = { items = {}, player_name = CONFIG.PARTNER_NAME, negotiated = false, confirmed = false },
+current_stage = 'negotiation',
+offer_version = 1,
+sender_has_trade_license = true,
+recipient_has_trade_license = true,
+busy_indicators = {},
+subscriber_count = CONFIG.SPECTATOR_COUNT,
+}
+end
+print("Mock Trade Script successfully loaded without the requested functions.")
